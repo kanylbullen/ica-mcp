@@ -59,6 +59,10 @@ REDIRECT_URI = "icacurity://app"
 ACR = "urn:se:curity:authentication:html-form:IcaCustomers"
 
 SL_PATH = "sverige/digx/mobile/shoppinglistservice/v1/shoppinglists"
+RECIPE_PATH = "sverige/digx/mobile/recipeservice/v1"
+STORE_PATH = "sverige/digx/mobile/storeservice/v1"
+OFFER_PATH = "sverige/digx/mobile/offerservice/v1"
+BONUS_PATH = "sverige/digx/mobile/bonusservice/v1"
 
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
@@ -442,3 +446,118 @@ class IcaClient:
         if by_id:
             return by_id
         return [r for r in rows if low in r.get("productName", "").lower()]
+
+    # ==================================================================
+    # Fas 2: recept, butiker, erbjudanden, bonus
+    # ==================================================================
+    # ---------------------------------------------------- recept
+    def get_recipe(self, recipe_id) -> dict:
+        """Full receptdetalj (titel, tid, portioner, ingredientGroups, steg)."""
+        return self._api("GET", f"{RECIPE_PATH}/recipes/{recipe_id}?api-version=2.0").json()
+
+    def get_saved_recipe_refs(self) -> list[dict]:
+        """Favoritmarkerade recept som referenser: [{recipeId, createdDate}]."""
+        return self._api("GET", f"{RECIPE_PATH}/favorites").json().get("favorites", [])
+
+    def get_random_recipes(self, count: int = 3) -> list[dict]:
+        """Random-endpointen ger ETT recept per anrop (numberofrecipes ignoreras),
+        så vi anropar den `count` gånger och dedupar."""
+        out: list[dict] = []
+        seen: set = set()
+        for _ in range(max(1, count)):
+            data = self._api("GET", f"{RECIPE_PATH}/recipes/random?numberofrecipes=1").json()
+            rec = (data[0] if isinstance(data, list) and data
+                   else data if isinstance(data, dict) and data.get("id") else None)
+            if rec and rec.get("id") not in seen:
+                seen.add(rec.get("id"))
+                out.append(rec)
+        return out
+
+    @staticmethod
+    def recipe_ingredient_texts(recipe: dict) -> list[str]:
+        """Platt lista av ingrediensrader ('8 dl mjölk', '4 ägg') ur ett recept."""
+        out = []
+        for grp in recipe.get("ingredientGroups", []):
+            for ing in grp.get("ingredients", []):
+                t = (ing.get("text") or ing.get("ingredient") or "").strip()
+                if t:
+                    out.append(t)
+        return out
+
+    @staticmethod
+    def recipe_summary(recipe: dict) -> dict:
+        return {
+            "id": recipe.get("id"),
+            "title": recipe.get("title"),
+            "cookingTime": recipe.get("cookingTime"),
+            "difficulty": recipe.get("difficulty"),
+            "ingredientCount": recipe.get("ingredientCount"),
+            "rating": recipe.get("averageRating"),
+            "portions": (recipe.get("details") or {}).get("portions"),
+        }
+
+    # ---------------------------------------------------- butiker
+    def get_favorite_store_ids(self) -> list[int]:
+        return self._api("GET", f"{STORE_PATH}/favorites").json().get("favoriteStores", [])
+
+    def get_store(self, store_id) -> dict:
+        return self._api("GET", f"{STORE_PATH}/stores/{store_id}").json()
+
+    def get_favorite_stores(self) -> list[dict]:
+        """[{id, name, city}] — favoritbutiker med upplösta namn."""
+        out = []
+        for sid in self.get_favorite_store_ids():
+            try:
+                s = self.get_store(sid)
+                out.append({"id": s.get("id", sid), "name": s.get("marketingName"),
+                            "city": (s.get("address") or {}).get("city")})
+            except IcaError:
+                out.append({"id": sid, "name": None, "city": None})
+        return out
+
+    def resolve_store(self, ref=None) -> dict:
+        """Hitta en favoritbutik via id eller namn. None = primär (första favoriten)."""
+        stores = self.get_favorite_stores()
+        if not stores:
+            raise IcaError("Du har inga favoritbutiker i ICA-appen.")
+        if ref is None or str(ref).strip() == "":
+            return stores[0]
+        s = str(ref).strip()
+        for st in stores:
+            if str(st["id"]) == s:
+                return st
+        low = s.lower()
+        m = [st for st in stores if st.get("name") and low in st["name"].lower()]
+        if len(m) == 1:
+            return m[0]
+        if len(m) > 1:
+            raise IcaError(f"Flera butiker matchar {ref!r}: {[st['name'] for st in m]}")
+        raise IcaError(f"Ingen favoritbutik matchar {ref!r}. "
+                       f"Dina butiker: {[st['name'] for st in stores]}")
+
+    # ---------------------------------------------------- erbjudanden
+    def get_store_offers(self, store_id) -> list[dict]:
+        return self._api("GET", f"{OFFER_PATH}/offersdiscounts/{store_id}").json().get("offers", [])
+
+    @staticmethod
+    def format_offer(o: dict) -> dict:
+        pm = o.get("parsedMechanics") or {}
+        deal = " ".join(v for v in (pm.get("value1"), pm.get("value2"),
+                                    pm.get("value3"), pm.get("value4")) if v).strip()
+        sign = pm.get("unitSign") or ""
+        if deal and sign:
+            deal = f"{deal}{sign}"
+        return {
+            "name": o.get("name"),
+            "brand": o.get("brand"),
+            "package": o.get("packageInformation"),
+            "deal": deal or None,
+            "category": (o.get("category") or {}).get("articleGroupName"),
+            "personal": bool(o.get("isPersonal")),
+            "requiresCard": bool(o.get("requiresLoyaltyCard")),
+            "validTo": o.get("validTo"),
+        }
+
+    # ---------------------------------------------------- bonus
+    def get_bonus(self) -> dict:
+        return self._api("GET", f"{BONUS_PATH}/bonus/current").json()

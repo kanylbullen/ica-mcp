@@ -27,9 +27,15 @@ BankID required for accounts that support password login).
 | `remove_item` | Remove an item entirely |
 | `clear_checked` | Remove all checked items (tidy up after shopping) |
 | `create_shopping_list` / `delete_shopping_list` | Create / delete a list |
+| `list_saved_recipes` / `get_recipe` | Your favourite recipes; one recipe's ingredients + steps |
+| `random_recipes` | Random recipes for inspiration |
+| `add_recipe_to_shopping_list` | Add a recipe's ingredients to a list as free-text items |
+| `list_stores` / `get_offers` | Your favourite stores; current offers for a store |
+| `get_bonus` | Your ICA bonus / Stammis balance |
 
-Lists and items are referenced **by name**, so an agent can act on natural
-language. Omitting a list name targets your primary list (`Handla`).
+Lists, items and stores are referenced **by name**, so an agent can act on
+natural language. Omitting a list/store name targets your primary one (the
+`Handla` list / your first favourite store).
 
 ## Requirements
 
@@ -169,11 +175,14 @@ public in that project), not user secrets.
 
 ## Roadmap
 
-Phase 1 (shopping lists) is done. Planned next, on the same auth:
+Done: **shopping lists** (phase 1), **recipes + offers + bonus** (phase 2,
+including the composite *"add a recipe's ingredients to my shopping list"*).
 
-- **Saved recipes** (`recipeservice/v1/favorites`, recipe search, random)
-- **Offers** (`offerservice/v1/offers/search`) and product/EAN lookup
-- Composite tool: *"add a recipe's ingredients to my shopping list"*
+Planned next, on the same auth:
+
+- **Recipe search** by phrase (the search endpoint shape isn't nailed down yet)
+- **Product / EAN lookup** (`productservice/v1/product/{ean}`)
+- **Personal offers** across stores
 
 ## Credits
 

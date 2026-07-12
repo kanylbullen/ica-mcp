@@ -11,6 +11,13 @@ Verktyg:
   create_shopping_list  – skapa ny lista
   delete_shopping_list  – radera en lista
   clear_checked         – ta bort alla avbockade varor
+  list_saved_recipes    – dina favoritrecept
+  get_recipe            – ett recept med ingredienser + steg
+  random_recipes        – slumprecept för inspiration
+  add_recipe_to_shopping_list – lägg receptets ingredienser på en lista
+  list_stores           – dina favoritbutiker
+  get_offers            – aktuella erbjudanden för en butik
+  get_bonus             – din ICA-bonus/Stammis
 
 Auth sköts av client.py (OAuth via ims.icagruppen.se, token cachas i en per-
 användare state-katalog). Kräver svensk egress-IP (annars HTTP 451).
@@ -175,6 +182,100 @@ def delete_shopping_list(list_name: str) -> str:
     title = L.get("title")
     client().delete_list(L["offlineId"])
     return f"Raderade listan '{title}'."
+
+
+# ------------------------------------------------------------------ recept
+@mcp.tool()
+def list_saved_recipes(limit: int = 12) -> dict:
+    """Lista dina favoritmarkerade recept (senast tillagda först). Hämtar
+    detaljer per recept, så håll limit lågt (standard 12)."""
+    c = client()
+    refs = sorted(c.get_saved_recipe_refs(),
+                  key=lambda r: r.get("createdDate", ""), reverse=True)
+    picked = refs[:max(1, int(limit))]
+    recipes = []
+    for ref in picked:
+        try:
+            recipes.append(IcaClient.recipe_summary(c.get_recipe(ref["recipeId"])))
+        except IcaError:
+            recipes.append({"id": ref.get("recipeId"), "title": None})
+    return {"total_saved": len(refs), "showing": len(recipes), "recipes": recipes}
+
+
+@mcp.tool()
+def get_recipe(recipe_id: int) -> dict:
+    """Hämta ett recept: titel, tid, portioner, ingredienser (fri text) och
+    tillagningssteg."""
+    r = client().get_recipe(recipe_id)
+    s = IcaClient.recipe_summary(r)
+    s["ingredients"] = IcaClient.recipe_ingredient_texts(r)
+    s["steps"] = (r.get("details") or {}).get("cookingSteps") or []
+    return s
+
+
+@mcp.tool()
+def random_recipes(count: int = 3) -> list[dict]:
+    """Hämta slumpmässiga recept för inspiration (count 1–10)."""
+    count = max(1, min(int(count), 10))
+    return [IcaClient.recipe_summary(r) for r in client().get_random_recipes(count)]
+
+
+@mcp.tool()
+def add_recipe_to_shopping_list(recipe_id: int, list_name: str | None = None) -> str:
+    """Lägg alla ingredienser från ett recept som varor på en inköpslista
+    (fri text, t.ex. '8 dl mjölk'). Utelämna list_name för primärlistan."""
+    c = client()
+    recipe = c.get_recipe(recipe_id)
+    items = IcaClient.recipe_ingredient_texts(recipe)
+    if not items:
+        return f"Receptet '{recipe.get('title')}' saknar ingredienser."
+    L = c.resolve_list(list_name)
+    c.add_rows(L["offlineId"], items)
+    return (f"La till {len(items)} ingredienser från '{recipe.get('title')}' "
+            f"på '{L.get('title')}'.")
+
+
+# ------------------------------------------------------ erbjudanden / butiker
+@mcp.tool()
+def list_stores() -> list[dict]:
+    """Lista dina favoritbutiker (id, namn, ort). Den första är standardbutik
+    för erbjudanden."""
+    return client().get_favorite_stores()
+
+
+@mcp.tool()
+def get_offers(store_name: str | None = None, query: str | None = None,
+               limit: int = 40) -> dict:
+    """Hämta aktuella erbjudanden för en butik. store_name matchas mot dina
+    favoritbutiker (utelämna för din primära butik). query filtrerar på
+    varunamn/märke/kategori (t.ex. 'kaffe')."""
+    c = client()
+    store = c.resolve_store(store_name)
+    offers = [IcaClient.format_offer(o) for o in c.get_store_offers(store["id"])]
+    if query:
+        q = str(query).lower()
+        # matcha varunamn/märke — INTE kategori (ordet 'Skafferivaror' innehåller
+        # t.ex. delsträngen 'kaffe' och skulle ge falska träffar)
+        offers = [o for o in offers if q in " ".join(
+            str(o.get(k) or "") for k in ("name", "brand")).lower()]
+    return {"store": store.get("name"), "count": len(offers),
+            "offers": offers[:max(1, int(limit))]}
+
+
+@mcp.tool()
+def get_bonus() -> dict:
+    """Visa din ICA-bonus/Stammis: kupongvärde, aktiva kuponger och rabatt hittills."""
+    b = client().get_bonus()
+    ab = b.get("accountBalance") or {}
+    ds = b.get("discountSummary") or {}
+    return {
+        "totalVoucherValue": ab.get("totalVoucherValue"),
+        "nextVoucherValue": ab.get("nextVoucherValue"),
+        "remainingDays": ab.get("remainingDays"),
+        "activeVouchers": len((b.get("vouchers") or {}).get("active") or []),
+        "totalDiscount": ds.get("totalDiscount"),
+        "numberOfPurchases": ds.get("numberOfPurchases"),
+    }
 
 
 def serve() -> None:
