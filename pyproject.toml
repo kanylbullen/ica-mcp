@@ -18,6 +18,9 @@ dependencies = [
     "platformdirs>=4.0", # per-användare state-katalog (token-cache)
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [project.urls]
 Homepage = "https://github.com/kanylbullen/ica-mcp"
 Repository = "https://github.com/kanylbullen/ica-mcp"
@@ -27,3 +30,6 @@ ica-mcp = "ica_mcp.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ica_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

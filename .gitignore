@@ -9,3 +9,6 @@ sample_shoppinglists.json
 build/
 dist/
 *.egg-info/
+
+# tests
+.pytest_cache/

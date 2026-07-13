@@ -1,5 +1,7 @@
 # ica-mcp
 
+[![CI](https://github.com/kanylbullen/ica-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/kanylbullen/ica-mcp/actions/workflows/ci.yml)
+
 An **MCP server for ICA** — Sweden's largest grocery chain — that lets AI agents
 (Claude, or any [Model Context Protocol](https://modelcontextprotocol.io) client)
 read and edit your ICA shopping lists in natural language:
@@ -197,6 +199,18 @@ Planned next, on the same auth:
 - Auth flow ported from [LazyTarget/ha-ica-todo](https://github.com/LazyTarget/ha-ica-todo)
 - Historical API reference: [svendahlstrand/ica-api](https://github.com/svendahlstrand/ica-api)
   (documents the now-defunct `handla.api.ica.se` backend)
+
+## Development
+
+```bash
+pip install -e ".[test]"
+pytest
+```
+
+Tests (`tests/`) cover the **pure helpers only** — ingredient aggregation,
+offer/recipe formatting, list/row matching, PKCE and redirect/form parsing. The
+live ICA API can't run in CI (it needs a Swedish IP and a login), so it's
+exercised manually. CI runs the suite on Python 3.10–3.13.
 
 ## License
 
