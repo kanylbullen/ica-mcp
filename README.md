@@ -34,6 +34,9 @@ BankID required for accounts that support password login).
 | `get_bonus` | Your ICA bonus / Stammis balance |
 | `get_product` | Look up a product by barcode (EAN/GTIN) |
 | `add_product_to_shopping_list` | Look up a barcode and add the product's name to a list |
+| `offers_on_my_list` | Which items on your list are on sale at a store |
+| `add_recipes_to_shopping_list` | Merge several recipes' ingredients onto one list |
+| `plan_dinners` | Random weekly menu → one aggregated shopping list |
 
 Lists, items and stores are referenced **by name**, so an agent can act on
 natural language. Omitting a list/store name targets your primary one (the
@@ -177,9 +180,9 @@ public in that project), not user secrets.
 
 ## Roadmap
 
-Done: **shopping lists** (phase 1); **recipes + offers + bonus** (phase 2,
-including the composite *"add a recipe's ingredients to my shopping list"*);
-**product / barcode lookup** (phase 3).
+Done: **shopping lists** (phase 1); **recipes + offers + bonus** (phase 2);
+**product / barcode lookup** (phase 3); **smart flows** (phase 4 —
+`offers_on_my_list`, `add_recipes_to_shopping_list`, `plan_dinners`).
 
 Planned next, on the same auth:
 
@@ -187,8 +190,7 @@ Planned next, on the same auth:
   `searchwithfilters` return HTTP 500 for every GET param shape tried (and 405
   on POST), so the real request shape needs capturing from live app traffic.
 - **Personal offers** across stores
-- Smart flows: *"what on my list is on sale this week?"*, *"plan a week of
-  dinners into one aggregated shopping list"*
+- Unit tests + CI, and a PyPI release
 
 ## Credits
 

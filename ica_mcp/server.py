@@ -20,6 +20,9 @@ Verktyg:
   get_bonus             – din ICA-bonus/Stammis
   get_product           – slå upp produkt via streckkod (EAN)
   add_product_to_shopping_list – streckkod → lägg produktens namn på en lista
+  offers_on_my_list     – vilka varor på listan är på extrapris
+  add_recipes_to_shopping_list – flera recept → ihopslagna ingredienser på en lista
+  plan_dinners          – slumpa veckans middagar → samlad inköpslista
 
 Auth sköts av client.py (OAuth via ims.icagruppen.se, token cachas i en per-
 användare state-katalog). Kräver svensk egress-IP (annars HTTP 451).
@@ -31,6 +34,7 @@ Logga in en gång först med `ica-mcp login`.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 
 from mcp.server.fastmcp import FastMCP
@@ -303,6 +307,80 @@ def add_product_to_shopping_list(ean: str, list_name: str | None = None) -> str:
     L = c.resolve_list(list_name)
     c.add_rows(L["offlineId"], [p["name"]])
     return f"La till '{p['name']}' på '{L.get('title')}'."
+
+
+# --------------------------------------------------------- smarta flöden
+@mcp.tool()
+def offers_on_my_list(list_name: str | None = None,
+                      store_name: str | None = None) -> dict:
+    """Korsa din inköpslista mot en butiks aktuella erbjudanden — visar vilka
+    ännu ej avbockade varor på listan som är på extrapris. Utelämna
+    list_name/store_name för primärlistan / din primära butik."""
+    c = client()
+    L = c.resolve_list(list_name)
+    fresh = c.get_list_raw(L["offlineId"])
+    store = c.resolve_store(store_name)
+    offers = c.get_store_offers(store["id"])
+    on_sale = []
+    for row in fresh.get("rows", []):
+        if row.get("isStrikedOver"):
+            continue
+        item = (row.get("productName") or "").strip()
+        words = [w for w in re.split(r"[^0-9a-zåäö]+", item.lower()) if len(w) >= 3]
+        if not words:
+            continue
+        hits = [IcaClient.format_offer(o) for o in offers
+                if any(w in (o.get("name") or "").lower() for w in words)]
+        if hits:
+            on_sale.append({"item": item,
+                            "offers": [{"name": h["name"], "brand": h["brand"],
+                                        "deal": h["deal"]} for h in hits]})
+    return {"list": fresh.get("title"), "store": store.get("name"),
+            "on_sale": on_sale,
+            "summary": f"{len(on_sale)} vara/varor på listan har erbjudanden på {store.get('name')}"}
+
+
+@mcp.tool()
+def add_recipes_to_shopping_list(recipe_ids: list[int],
+                                 list_name: str | None = None) -> str:
+    """Lägg ingredienserna från FLERA recept på en lista, ihopslagna (samma
+    vara + enhet summeras). Utelämna list_name för primärlistan."""
+    c = client()
+    recipes = []
+    for rid in recipe_ids:
+        try:
+            recipes.append(c.get_recipe(rid))
+        except IcaError:
+            pass
+    if not recipes:
+        return "Kunde inte hämta något av recepten."
+    items = IcaClient.aggregate_ingredients(recipes)
+    L = c.resolve_list(list_name)
+    c.add_rows(L["offlineId"], items)
+    titles = ", ".join(r.get("title") or "?" for r in recipes)
+    return (f"La till {len(items)} ihopslagna ingredienser från {len(recipes)} "
+            f"recept ({titles}) på '{L.get('title')}'.")
+
+
+@mcp.tool()
+def plan_dinners(count: int = 5, list_name: str | None = None) -> dict:
+    """Planera veckans middagar: hämtar `count` slumprecept (1–10), slår ihop
+    deras ingredienser och lägger på en lista (skapar 'Veckans middagar' om
+    list_name utelämnas). Returnerar menyn."""
+    count = max(1, min(int(count), 10))
+    c = client()
+    recipes = c.get_random_recipes(count)
+    if not recipes:
+        return {"error": "Kunde inte hämta recept."}
+    items = IcaClient.aggregate_ingredients(recipes)
+    L = c.resolve_or_create_list(list_name or "Veckans middagar")
+    c.add_rows(L["offlineId"], items)
+    return {
+        "list": L.get("title"),
+        "dinners": [{"id": r.get("id"), "title": r.get("title"),
+                     "cookingTime": r.get("cookingTime")} for r in recipes],
+        "ingredients_added": len(items),
+    }
 
 
 def serve() -> None:

@@ -437,6 +437,14 @@ class IcaClient:
             raise IcaError(f"Flera listor matchar {ref!r}: {[L['title'] for L in sub]}")
         raise IcaError(f"Ingen lista matchar {ref!r}. Dina listor: {[L['title'] for L in lists]}")
 
+    def resolve_or_create_list(self, name: str) -> dict:
+        """Hitta en lista med exakt titel, annars skapa en ny med det namnet."""
+        low = name.strip().lower()
+        for L in self.get_lists():
+            if L.get("title", "").lower() == low:
+                return L
+        return self.create_list(name)
+
     @staticmethod
     def match_rows(list_obj: dict, item: str, unstruck_only: bool = False) -> list[dict]:
         rows = list_obj.get("rows", [])
@@ -499,6 +507,33 @@ class IcaClient:
             "rating": recipe.get("averageRating"),
             "portions": (recipe.get("details") or {}).get("portions"),
         }
+
+    @staticmethod
+    def aggregate_ingredients(recipes: list[dict]) -> list[str]:
+        """Slå ihop ingredienser från flera recept. Samma vara + samma enhet
+        summeras ('2 dl' + '3 dl mjölk' → '5 dl mjölk'); vid olika/saknad enhet
+        listas de distinkta ursprungsraderna. Ordningen bevaras."""
+        from collections import OrderedDict
+        groups: "OrderedDict[str, list]" = OrderedDict()
+        for r in recipes:
+            for grp in r.get("ingredientGroups", []):
+                for ing in grp.get("ingredients", []):
+                    name = (ing.get("ingredient") or ing.get("text") or "").strip()
+                    if name:
+                        groups.setdefault(name.lower(), []).append(ing)
+        lines: list[str] = []
+        for ings in groups.values():
+            name = ings[0].get("ingredient") or ings[0].get("text") or ""
+            units = {(i.get("unit") or "") for i in ings}
+            qtys = [i.get("quantity") for i in ings]
+            if len(units) == 1 and all(isinstance(q, (int, float)) for q in qtys) and any(qtys):
+                unit = ings[0].get("unit")
+                total = f"{sum(qtys):g}"
+                lines.append(f"{total}{(' ' + unit) if unit else ''} {name}".strip())
+            else:
+                for t in dict.fromkeys(i.get("text") for i in ings if i.get("text")):
+                    lines.append(t)
+        return lines
 
     # ---------------------------------------------------- butiker
     def get_favorite_store_ids(self) -> list[int]:
