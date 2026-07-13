@@ -1,0 +1,38 @@
+name: Release
+
+# Publiceras till PyPI när en GitHub Release publiceras (tagga t.ex. v0.5.0).
+# Använder PyPI Trusted Publishing (OIDC) — ingen lagrad token.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          pip install build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi          # måste matcha "Environment name" i PyPI:s pending publisher
+    permissions:
+      id-token: write          # krävs för Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

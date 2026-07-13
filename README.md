@@ -74,9 +74,12 @@ on Windows, macOS and Linux:
 #   Windows:      winget install --id=astral-sh.uv -e
 #   macOS/Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh
 
-uv tool install git+https://github.com/kanylbullen/ica-mcp
+uv tool install ica-mcp
 uv tool update-shell      # puts `ica-mcp` on PATH — then open a NEW terminal
 ```
+
+> For the latest unreleased code use the repo instead of PyPI:
+> `uv tool install git+https://github.com/kanylbullen/ica-mcp`
 
 <details>
 <summary>Fallback without uv (plain pip + venv)</summary>
