@@ -18,6 +18,8 @@ Verktyg:
   list_stores           – dina favoritbutiker
   get_offers            – aktuella erbjudanden för en butik
   get_bonus             – din ICA-bonus/Stammis
+  get_product           – slå upp produkt via streckkod (EAN)
+  add_product_to_shopping_list – streckkod → lägg produktens namn på en lista
 
 Auth sköts av client.py (OAuth via ims.icagruppen.se, token cachas i en per-
 användare state-katalog). Kräver svensk egress-IP (annars HTTP 451).
@@ -276,6 +278,31 @@ def get_bonus() -> dict:
         "totalDiscount": ds.get("totalDiscount"),
         "numberOfPurchases": ds.get("numberOfPurchases"),
     }
+
+
+# ------------------------------------------------------------------ produkt
+@mcp.tool()
+def get_product(ean: str) -> dict:
+    """Slå upp en produkt via streckkod (EAN/GTIN). Returnerar namn +
+    artikelgrupp, eller found=False om koden inte finns."""
+    p = client().get_product(str(ean).strip())
+    if not p:
+        return {"found": False, "ean": ean, "message": f"Ingen produkt för EAN {ean}."}
+    return {"found": True, "ean": p.get("gtin"), "name": p.get("name"),
+            "articleId": p.get("articleId"), "articleGroupId": p.get("articleGroupId")}
+
+
+@mcp.tool()
+def add_product_to_shopping_list(ean: str, list_name: str | None = None) -> str:
+    """Slå upp en streckkod (EAN/GTIN) och lägg produktens namn på en lista.
+    Utelämna list_name för primärlistan."""
+    c = client()
+    p = c.get_product(str(ean).strip())
+    if not p:
+        return f"Ingen produkt hittades för EAN {ean}."
+    L = c.resolve_list(list_name)
+    c.add_rows(L["offlineId"], [p["name"]])
+    return f"La till '{p['name']}' på '{L.get('title')}'."
 
 
 def serve() -> None:

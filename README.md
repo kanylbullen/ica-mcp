@@ -32,6 +32,8 @@ BankID required for accounts that support password login).
 | `add_recipe_to_shopping_list` | Add a recipe's ingredients to a list as free-text items |
 | `list_stores` / `get_offers` | Your favourite stores; current offers for a store |
 | `get_bonus` | Your ICA bonus / Stammis balance |
+| `get_product` | Look up a product by barcode (EAN/GTIN) |
+| `add_product_to_shopping_list` | Look up a barcode and add the product's name to a list |
 
 Lists, items and stores are referenced **by name**, so an agent can act on
 natural language. Omitting a list/store name targets your primary one (the
@@ -175,14 +177,18 @@ public in that project), not user secrets.
 
 ## Roadmap
 
-Done: **shopping lists** (phase 1), **recipes + offers + bonus** (phase 2,
-including the composite *"add a recipe's ingredients to my shopping list"*).
+Done: **shopping lists** (phase 1); **recipes + offers + bonus** (phase 2,
+including the composite *"add a recipe's ingredients to my shopping list"*);
+**product / barcode lookup** (phase 3).
 
 Planned next, on the same auth:
 
-- **Recipe search** by phrase (the search endpoint shape isn't nailed down yet)
-- **Product / EAN lookup** (`productservice/v1/product/{ean}`)
+- **Recipe search** by phrase — deferred: `recipes/search` &
+  `searchwithfilters` return HTTP 500 for every GET param shape tried (and 405
+  on POST), so the real request shape needs capturing from live app traffic.
 - **Personal offers** across stores
+- Smart flows: *"what on my list is on sale this week?"*, *"plan a week of
+  dinners into one aggregated shopping list"*
 
 ## Credits
 

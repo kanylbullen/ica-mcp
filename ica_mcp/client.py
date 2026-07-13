@@ -63,6 +63,7 @@ RECIPE_PATH = "sverige/digx/mobile/recipeservice/v1"
 STORE_PATH = "sverige/digx/mobile/storeservice/v1"
 OFFER_PATH = "sverige/digx/mobile/offerservice/v1"
 BONUS_PATH = "sverige/digx/mobile/bonusservice/v1"
+PRODUCT_PATH = "sverige/digx/mobile/productservice/v1"
 
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
@@ -310,7 +311,8 @@ class IcaClient:
             return self._state["token"]["access_token"]
 
     # -------------------------------------------------------------- HTTP
-    def _api(self, method: str, path: str, json_body=None, _retry=True) -> requests.Response:
+    def _api(self, method: str, path: str, json_body=None, _retry=True,
+             allow_404: bool = False) -> requests.Response:
         url = f"{API_BASE}/{path}"
         headers = {"Authorization": f"Bearer {self._access_token()}"}
         data = None
@@ -320,10 +322,12 @@ class IcaClient:
         r = self.session.request(method, url, headers=headers, data=data, timeout=30)
         if r.status_code == 401 and _retry:
             self._access_token(force_refresh=True)
-            return self._api(method, path, json_body, _retry=False)
+            return self._api(method, path, json_body, _retry=False, allow_404=allow_404)
         if r.status_code == 451:
             raise IcaError("HTTP 451 från ICA-gatewayen — icke-svensk IP (geo-block). "
                            "Kör servern från svensk egress.")
+        if r.status_code == 404 and allow_404:
+            return r
         if not r.ok:
             raise IcaError(f"ICA {method} {path} → HTTP {r.status_code}: {(r.text or '')[:300]}")
         return r
@@ -561,3 +565,9 @@ class IcaClient:
     # ---------------------------------------------------- bonus
     def get_bonus(self) -> dict:
         return self._api("GET", f"{BONUS_PATH}/bonus/current").json()
+
+    # ---------------------------------------------------- produkt (streckkod)
+    def get_product(self, ean) -> dict | None:
+        """Produktinfo för en EAN/GTIN, eller None om koden inte finns (404)."""
+        r = self._api("GET", f"{PRODUCT_PATH}/product/{ean}", allow_404=True)
+        return None if r.status_code == 404 else r.json()
