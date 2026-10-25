@@ -8,5 +8,5 @@ from __future__ import annotations
 
 from .client import IcaAuthError, IcaClient, IcaError, resolve_state_file
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 __all__ = ["IcaClient", "IcaError", "IcaAuthError", "resolve_state_file", "__version__"]
