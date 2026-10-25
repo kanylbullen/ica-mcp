@@ -101,7 +101,7 @@ def cmd_login(args: argparse.Namespace) -> int:
         except (IcaError, requests.RequestException):
             pass  # cachen dög inte — gå vidare till interaktiv inloggning
 
-    username = os.environ.get("ICA_USER") or input("Personnummer (ÅÅMMDDXXXX): ").strip()
+    username = os.environ.get("ICA_USER") or input("Personnummer (ÅÅÅÅMMDDXXXX): ").strip()
     password = os.environ.get("ICA_PASS") or getpass.getpass("Lösenord: ")
     if not username or not password:
         print("Saknar personnummer eller lösenord.", file=sys.stderr)
