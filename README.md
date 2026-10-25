@@ -23,8 +23,8 @@ BankID required for accounts that support password login).
 | Tool | What it does |
 |---|---|
 | `list_shopping_lists` | All your lists + how many items remain/checked |
-| `view_shopping_list` | Contents of a list (by name; defaults to your primary list) |
-| `add_items` | Add one or more free-text items to a list |
+| `view_shopping_list` | Contents of a list (by name; defaults to your primary list), with each item's category |
+| `add_items` | Add one or more free-text items to a list, optionally in a given category (otherwise ICA picks one from the name) |
 | `check_off` / `uncheck` | Mark an item bought / undo |
 | `remove_item` | Remove an item entirely |
 | `clear_checked` | Remove all checked items (tidy up after shopping) |

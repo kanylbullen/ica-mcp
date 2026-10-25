@@ -39,7 +39,7 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from .client import IcaClient, IcaError
+from .client import ARTICLE_GROUPS, IcaClient, IcaError, category_name, resolve_category
 
 # Logga till stderr (stdout är reserverat för MCP-protokollet!)
 logging.basicConfig(level=logging.INFO, stream=sys.stderr,
@@ -64,6 +64,8 @@ def _row_view(row: dict) -> dict:
         v["quantity"] = row["quantity"]
     if row.get("unit"):
         v["unit"] = row["unit"]
+    if category_name(row):
+        v["category"] = category_name(row)
     return v
 
 
@@ -114,14 +116,23 @@ def view_shopping_list(list_name: str | None = None) -> dict:
 
 
 @mcp.tool()
-def add_items(items: list[str], list_name: str | None = None) -> str:
+def add_items(items: list[str], list_name: str | None = None,
+              category: str | None = None) -> str:
     """Lägg till en eller flera varor (fri text, t.ex. 'mjölk', '2 kg potatis')
-    på en inköpslista. Utelämna list_name för den primära listan."""
+    på en inköpslista. Utelämna list_name för den primära listan.
+
+    category sätter samma kategori på alla varor i anropet, med namnen från
+    ICA-appen (t.ex. 'Mejeri', 'Frukt & Grönt', 'Städ & disk', 'Djur').
+    Utelämna den så väljer ICA kategori utifrån varans namn, vilket räcker
+    för vanliga matvaror. Varor i olika kategorier kräver ett anrop per kategori."""
     if not items:
         return "Inga varor angivna."
+    label = ""
+    if category:
+        label = f" i kategorin {ARTICLE_GROUPS[resolve_category(category)[1]][0]}"
     L = client().resolve_list(list_name)
-    client().add_rows(L["offlineId"], list(items))
-    return f"La till {len(items)} vara/varor på '{L.get('title')}': {', '.join(items)}"
+    client().add_rows(L["offlineId"], [{"name": i, "category": category} for i in items])
+    return f"La till {len(items)} vara/varor på '{L.get('title')}'{label}: {', '.join(items)}"
 
 
 @mcp.tool()
