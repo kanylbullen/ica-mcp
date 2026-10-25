@@ -27,8 +27,10 @@ import random
 import re
 import shutil
 import threading
+import unicodedata
 import uuid
 from os import urandom
+from typing import NamedTuple
 from urllib.parse import urlparse, parse_qs
 
 import platformdirs
@@ -64,6 +66,50 @@ STORE_PATH = "sverige/digx/mobile/storeservice/v1"
 OFFER_PATH = "sverige/digx/mobile/offerservice/v1"
 BONUS_PATH = "sverige/digx/mobile/bonusservice/v1"
 PRODUCT_PATH = "sverige/digx/mobile/productservice/v1"
+
+# Varukategorier, i den ordning ICA-appen listar dem: id → (namn, huvudgrupp).
+# En rad bär två fält — articleGroupIdExtended är kategorin appen visar,
+# articleGroupId huvudgruppen (3–12) den hör till. ICA validerar inget och
+# sparar paret som det skickas, så det måste stämma här.
+# Underkategoriernas huvudgrupp är läst ur ICA:s egen autokategorisering av
+# fritext (kommentaren visar på vilka varor); de utan kommentar har den aldrig
+# satt, och där är 11 antagen.
+ARTICLE_GROUPS: dict[int, tuple[str, int]] = {
+    3: ("Bröd, kex & bageri", 3),
+    4: ("Frukt & Grönt", 4),
+    5: ("Fryst", 5),
+    6: ("Kött & fågel", 6),
+    7: ("Hälsa & skönhet", 7),
+    8: ("Kassa", 8),
+    9: ("Skafferi", 9),
+    10: ("Mejeri", 10),
+    11: ("Kök, hem & fritid", 11),
+    12: ("Ospecificerat", 12),
+    13: ("Ost", 6),                    # ost
+    14: ("Färdigmat & sallader", 6),   # pinsa, gratäng; guacamole låg under 9
+    15: ("Fisk", 6),                   # lax
+    16: ("Chark", 6),                  # korv, bacon
+    17: ("Blommor", 11),               # tulpaner
+    18: ("Dryck", 9),                  # läsk, cider
+    19: ("Godis & snacks", 9),         # snacks, popcorn
+    20: ("Barn", 9),                   # blöjor, välling
+    21: ("Städ & disk", 9),            # diskmedel, mopp
+    22: ("Djur", 9),                   # hundmat, kattsand
+    23: ("Tidningar", 8),              # tidning
+    24: ("Köket", 11),
+    25: ("Textil", 11),
+    26: ("Elhushåll", 11),
+    27: ("Städ", 11),
+    28: ("Fixa", 11),                  # skarvsladd
+    29: ("Lek", 11),
+    30: ("Kontor", 11),
+    31: ("Lampor", 11),
+    32: ("Baby", 11),
+    33: ("Media", 11),
+    34: ("Böcker", 11),
+    35: ("Kläder och skor", 11),       # solglasögon
+    36: ("Säsong", 11),                # jord, poolfilter
+}
 
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
@@ -146,6 +192,54 @@ def normalize_personnummer(value: str | None) -> str | None:
         return century + digits
     # Låt övriga längder passera oförändrade — servern får avgöra.
     return digits or None
+
+
+def _norm_category(value: str) -> str:
+    # NFC: "ö" kan komma som o + kombinerande trema (vanligt i text från macOS).
+    text = unicodedata.normalize("NFC", str(value)).lower().replace("&", " och ")
+    return " ".join(text.split())
+
+
+_CATEGORY_BY_NORM = {_norm_category(n): gid for gid, (n, _) in ARTICLE_GROUPS.items()}
+
+
+class Category(NamedTuple):
+    name: str
+    group_id: int      # articleGroupId — huvudgruppen
+    extended_id: int   # articleGroupIdExtended — kategorin appen visar
+
+
+def resolve_category(name: str) -> Category:
+    """Slå upp en kategori via namnet ICA-appen visar.
+
+    Skiftlägesokänsligt, och ``&``/``och`` räknas lika. Exakt namn vinner
+    (``städ`` är Städ, inte Städ & disk); annars räcker början av ett ord i
+    namnet om den är entydig (``frukt``, ``godis``). Mitt i ett ord matchar
+    inte, så ``hushåll`` ger fel i stället för att tyst bli Elhushåll.
+    """
+    want = _norm_category(name)
+    gid = _CATEGORY_BY_NORM.get(want)
+    if gid is None and want:
+        starts = re.compile(r"\b" + re.escape(want))
+        hits = [g for n, g in _CATEGORY_BY_NORM.items() if starts.search(n)]
+        if len(hits) > 1:
+            raise IcaError(f"Flera kategorier matchar {name!r}: "
+                           f"{[ARTICLE_GROUPS[g][0] for g in hits]}")
+        gid = hits[0] if hits else None
+    if gid is None:
+        raise IcaError(f"Okänd kategori {name!r}. Giltiga: "
+                       f"{[n for n, _ in ARTICLE_GROUPS.values()]}")
+    label, parent = ARTICLE_GROUPS[gid]
+    return Category(label, parent, gid)
+
+
+def category_name(row: dict) -> str | None:
+    """Kategorin appen visar för en rad, eller ``None`` om den saknar en."""
+    for key in ("articleGroupIdExtended", "articleGroupId"):
+        entry = ARTICLE_GROUPS.get(row.get(key))
+        if entry:
+            return entry[0]
+    return None
 
 
 class IcaClient:
@@ -428,6 +522,9 @@ class IcaClient:
                 row["quantity"] = float(it["quantity"])
             if it.get("unit"):
                 row["unit"] = it["unit"]
+            if (it.get("category") or "").strip():
+                cat = resolve_category(it["category"])
+                row["articleGroupId"], row["articleGroupIdExtended"] = cat.group_id, cat.extended_id
             rows.append(row)
         return self._sync(offline_id, {"createdRows": rows})
 
