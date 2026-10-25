@@ -38,8 +38,9 @@ import re
 import sys
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel
 
-from .client import ARTICLE_GROUPS, IcaClient, IcaError, category_name, resolve_category
+from .client import IcaClient, IcaError, category_name, resolve_category
 
 # Logga till stderr (stdout är reserverat för MCP-protokollet!)
 logging.basicConfig(level=logging.INFO, stream=sys.stderr,
@@ -64,8 +65,8 @@ def _row_view(row: dict) -> dict:
         v["quantity"] = row["quantity"]
     if row.get("unit"):
         v["unit"] = row["unit"]
-    if category_name(row):
-        v["category"] = category_name(row)
+    if category := category_name(row):
+        v["category"] = category
     return v
 
 
@@ -115,24 +116,35 @@ def view_shopping_list(list_name: str | None = None) -> dict:
             "summary": f"{len(remaining)} kvar, {len(checked)} avbockade"}
 
 
+class Item(BaseModel):
+    """En vara med egen kategori."""
+    name: str
+    category: str | None = None
+
+
 @mcp.tool()
-def add_items(items: list[str], list_name: str | None = None,
+def add_items(items: list[str | Item], list_name: str | None = None,
               category: str | None = None) -> str:
     """Lägg till en eller flera varor (fri text, t.ex. 'mjölk', '2 kg potatis')
     på en inköpslista. Utelämna list_name för den primära listan.
 
-    category sätter samma kategori på alla varor i anropet, med namnen från
-    ICA-appen (t.ex. 'Mejeri', 'Frukt & Grönt', 'Städ & disk', 'Djur').
-    Utelämna den så väljer ICA kategori utifrån varans namn, vilket räcker
-    för vanliga matvaror. Varor i olika kategorier kräver ett anrop per kategori."""
+    Kategori är valfri och anges med namnen från ICA-appen (t.ex. 'Mejeri',
+    'Frukt & Grönt', 'Städ & disk', 'Djur'). Utelämnad väljer ICA kategori
+    utifrån varans namn, vilket räcker för vanliga matvaror. `category` gäller
+    alla varor i anropet; en vara kan också ges som {"name": ..., "category": ...}
+    med egen kategori, så att en blandad korg går i ett anrop."""
     if not items:
         return "Inga varor angivna."
-    label = ""
-    if category:
-        label = f" i kategorin {ARTICLE_GROUPS[resolve_category(category)[1]][0]}"
+    rows = []
+    for it in items:
+        name, cat = (it, category) if isinstance(it, str) else (it.name, it.category or category)
+        cat = (cat or "").strip()
+        # Slå upp före nätanropen: en okänd kategori ska inte lämna halva korgen på listan.
+        rows.append({"name": name, "category": resolve_category(cat).name if cat else None})
     L = client().resolve_list(list_name)
-    client().add_rows(L["offlineId"], [{"name": i, "category": category} for i in items])
-    return f"La till {len(items)} vara/varor på '{L.get('title')}'{label}: {', '.join(items)}"
+    client().add_rows(L["offlineId"], rows)
+    shown = [f"{r['name']} ({r['category']})" if r["category"] else r["name"] for r in rows]
+    return f"La till {len(rows)} vara/varor på '{L.get('title')}': {', '.join(shown)}"
 
 
 @mcp.tool()

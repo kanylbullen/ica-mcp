@@ -27,8 +27,10 @@ import random
 import re
 import shutil
 import threading
+import unicodedata
 import uuid
 from os import urandom
+from typing import NamedTuple
 from urllib.parse import urlparse, parse_qs
 
 import platformdirs
@@ -193,28 +195,42 @@ def normalize_personnummer(value: str | None) -> str | None:
 
 
 def _norm_category(value: str) -> str:
-    return " ".join(str(value).lower().replace("&", " och ").split())
+    # NFC: "ö" kan komma som o + kombinerande trema (vanligt i text från macOS).
+    text = unicodedata.normalize("NFC", str(value)).lower().replace("&", " och ")
+    return " ".join(text.split())
 
 
-def resolve_category(name: str) -> tuple[int, int]:
-    """Kategorinamn → ``(articleGroupId, articleGroupIdExtended)``.
+_CATEGORY_BY_NORM = {_norm_category(n): gid for gid, (n, _) in ARTICLE_GROUPS.items()}
+
+
+class Category(NamedTuple):
+    name: str
+    group_id: int      # articleGroupId — huvudgruppen
+    extended_id: int   # articleGroupIdExtended — kategorin appen visar
+
+
+def resolve_category(name: str) -> Category:
+    """Slå upp en kategori via namnet ICA-appen visar.
 
     Skiftlägesokänsligt, och ``&``/``och`` räknas lika. Exakt namn vinner
-    (``städ`` är Städ, inte Städ & disk); annars räcker ett entydigt delord
-    (``frukt``, ``godis``).
+    (``städ`` är Städ, inte Städ & disk); annars räcker början av ett ord i
+    namnet om den är entydig (``frukt``, ``godis``). Mitt i ett ord matchar
+    inte, så ``hushåll`` ger fel i stället för att tyst bli Elhushåll.
     """
     want = _norm_category(name)
-    by_name = {_norm_category(n): (parent, gid) for gid, (n, parent) in ARTICLE_GROUPS.items()}
-    if want in by_name:
-        return by_name[want]
-    partial = [n for n in by_name if want and want in n]
-    if len(partial) == 1:
-        return by_name[partial[0]]
-    names = [n for n, _ in ARTICLE_GROUPS.values()]
-    if partial:
-        hits = [n for n in names if _norm_category(n) in partial]
-        raise IcaError(f"Flera kategorier matchar {name!r}: {hits}")
-    raise IcaError(f"Okänd kategori {name!r}. Giltiga: {names}")
+    gid = _CATEGORY_BY_NORM.get(want)
+    if gid is None and want:
+        starts = re.compile(r"\b" + re.escape(want))
+        hits = [g for n, g in _CATEGORY_BY_NORM.items() if starts.search(n)]
+        if len(hits) > 1:
+            raise IcaError(f"Flera kategorier matchar {name!r}: "
+                           f"{[ARTICLE_GROUPS[g][0] for g in hits]}")
+        gid = hits[0] if hits else None
+    if gid is None:
+        raise IcaError(f"Okänd kategori {name!r}. Giltiga: "
+                       f"{[n for n, _ in ARTICLE_GROUPS.values()]}")
+    label, parent = ARTICLE_GROUPS[gid]
+    return Category(label, parent, gid)
 
 
 def category_name(row: dict) -> str | None:
@@ -506,8 +522,9 @@ class IcaClient:
                 row["quantity"] = float(it["quantity"])
             if it.get("unit"):
                 row["unit"] = it["unit"]
-            if it.get("category"):
-                row["articleGroupId"], row["articleGroupIdExtended"] = resolve_category(it["category"])
+            if (it.get("category") or "").strip():
+                cat = resolve_category(it["category"])
+                row["articleGroupId"], row["articleGroupIdExtended"] = cat.group_id, cat.extended_id
             rows.append(row)
         return self._sync(offline_id, {"createdRows": rows})
 
